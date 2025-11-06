@@ -1,0 +1,208 @@
+/*
+DESCRIPTION 
+
+Now that the reference points have been sampled, we need to create probability layers
+that will eventually feed into our assemblage logic. In order to do that we will be
+using random forest classifier with output mode set as probability. Since the classification
+will be probability of a certain biophysical feature existing within that pixel, we will use
+perform classification using only two classes 1. class that specifies that a certain feature
+exists 2. class that specifies that said feature does not exist. For example, if we want to
+generate a tree cover primitive, we will set points that symbolize tree cover as class 1 and
+other points such as built up, rivers, etc as class 0.
+ 
+SCRIPT INFOS
+ 
+The variables that users can/should change are
+1. boundary - this should contain the boundary of region of interest
+2. repository - this is the image collection that contains the composites
+3. primitive - it is the name of the primitive (as in reference data) which we want to prepare
+    primitive layer for
+4. year - this is the year for which we want to produce the primitive layer
+5. sampledTableId - this should contain the asset Id or fusion table id (starting with a "ft:"
+    if its a fusion table) for the sampled table
+6. landClassField - this should contain the name of column that contains the
+    land class information
+7. exportScale - this is the spatial resolution of the export layer
+8. numberOfTrees - (optional) the number of trees used by random forest
+
+The users need to do the following  
+1. After the script is run, initiate the export tasks by going to the "Tasks" tab ------->>>>>>>>>>
+    Note that there will be multiple exports for each year
+
+DEVELOPER NOTES
+
+1. Note that the feature importance in the script containing feature importances need to be
+    updated based on your sampled data. We do this by running R script that evaluates the 
+    feature importance of the classifier model. 
+2. If you do not wish to run feature importance, you can just comment the line 105 (not 
+    recommended) to ommit the select part.
+*/
+
+/* 
+Variables - refer above notes section for description on these
+*/
+var boundary = ee.FeatureCollection('projects/servir-hkh/RLCMS/NEP/bnd/bnd_buff_n').geometry();
+var repository = 'projects/servir-hkh/FRTC_WB/composites';
+var primitive = 'tree';
+
+//['tree', 'cropland', 'snow', 'grassland', 'riverbed','water','tch', 'tcc'];
+
+
+// name: 
+var year = 2023;
+var sampledTableIds = [
+  'projects/servir-hkh/FRTC_WB/pointsample/training_np_after_2012_19_', // for after 2013
+  // 'projects/servir-hkh/RLCMS/HKH/pointsample/sampledTraining_lt11_13082019' // for before 2011
+  // uncomment both to use both in classification
+];
+var exportColl = 'projects/servir-hkh/FRTC_WB/primitives';
+
+ 
+
+var exportScale = 10;
+var landClassField = 'Primitive';
+var numberOfTrees = 100;
+/* ----------------------------------------------------------------------------------------------
+WARNING!!!
+
+FUNCTIONS AND PROCEDURES BELOW HERE
+
+edit at your own risk
+*/
+
+/*
+IMPORT - required script that adds various covariates to the composite image
+*/
+var addCovariates = require('users/kabiruddinbd/frtc_wb_scripts:SupportScripts/1_addCovariates_yearly');
+
+
+//var importantFeatures = require('users/kabiruddinbd/rlcms:NEP/Annex_featureLists_17-19');
+/*
+get the sampled table from supplied Ids
+*/
+var sampledTable = ee.FeatureCollection([]);
+for (var index in sampledTableIds){
+  var featureColl = ee.FeatureCollection(sampledTableIds[index]);
+  sampledTable = sampledTable.merge(featureColl);
+}
+print(sampledTable.aggregate_histogram(landClassField))
+/*
+change the primitive class to 1 and others to 0
+*/
+var classPoints = sampledTable.filter(ee.Filter.eq(landClassField,primitive)).map(remapClassPoints);
+
+var otherPoints = sampledTable.filter(ee.Filter.neq(landClassField,primitive)).map(remapOtherPoints);
+
+/*
+merge the exists and does not exist points
+*/
+var sampledPoints = classPoints.merge(otherPoints);
+print("Number of points used to train classifier:", sampledPoints.size());
+
+/*
+run the model and classify the composite for the year
+*/
+var image = runModel(primitive, year, sampledPoints);
+Map.addLayer(image,{},primitive+'-'+year);
+exportHelper(image, primitive, year);
+
+/*
+create an empty image
+*/
+// var image = ee.Image([]);
+/*
+iterate for all years
+*/
+// for (var year = startYear; year <= endYear; year++){
+//   var yearlyImage = runModel(primitive, year, sampledPoints);
+//   image = image.addBands(yearlyImage.rename("b"+year));
+//   Map.addLayer(image)
+// }
+// exportHelper(image, primitive,"stack")
+
+/*
+shell function to run the process based on primitive and year
+*/
+function runModel(primitive, year, sampledPoints){
+  
+  /*
+  get the composite to classify, add covariates to it and then select the only ones that are
+  important to the classification. This comes from testing the random forest classifier using R
+  */
+  var composite = ee.Image(repository+'/'+year);
+  var covImage = addCovariates.addCovariatesToImage(composite)
+              // .select(importantFeatures[primitive]);
+  // print(composite,covImage)
+  
+  /*
+  initiate the classification process
+  */
+  var classifiedImage = classifyImage(covImage, sampledPoints, boundary);
+  
+  /*
+  mask the classified image to remove pixels that were classified with filled information
+  */
+  classifiedImage = classifiedImage.updateMask(composite.select('B4').mask());
+  return classifiedImage;
+  /*
+  add classified layer to map and export it - commented to make stack
+  */
+  /*Map.addLayer(classifiedImage, {}, year+" - " + primitive, false);
+  exportHelper(classifiedImage, primitive, year);*/
+}
+
+/*
+main function takes images with covariates and sampled points
+returns an array with classified image and confusion matrix
+*/
+function classifyImage(covImage, sampledPoints, boundary){
+  var bandNames = covImage.bandNames().remove(landClassField);
+  
+  var classifier = ee.Classifier.smileRandomForest(numberOfTrees)
+    .setOutputMode('PROBABILITY')
+    .train({
+      features : sampledPoints,
+      classProperty: landClassField,
+      inputProperties: bandNames
+    });
+    
+   
+  var classifiedImage = covImage.classify(classifier);
+  
+  return classifiedImage;
+}
+
+/*
+function to help export
+*/
+function exportHelper(image, primitive, year){
+  Export.image.toAsset({
+    'image':image.multiply(10000).toUint16(),
+    'description':'Export-'+primitive+'-'+year,
+    'assetId': exportColl+'/'+primitive+'-'+year,
+    'region': boundary.bounds(),
+    'scale': exportScale,
+    'maxPixels':1e13
+  })
+}
+
+/*
+function to remap class points to 1
+*/
+function remapClassPoints(feature){
+  return feature.set(landClassField,1);
+}
+
+/*
+function to remap non class points to 0
+*/
+function remapOtherPoints(feature){
+  return feature.set(landClassField,0);
+}
+
+
+/*
+Author; Kabir Uddin, ICIMOD, Nepal Email: Kabir.Uddin@icimod.org kabir.uddin.bd@gmail.com 
+*/
+ 
+ 
