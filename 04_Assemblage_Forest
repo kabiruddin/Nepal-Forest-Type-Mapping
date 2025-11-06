@@ -1,0 +1,218 @@
+// Define boundary for Nepal region
+// ------------------------------------------
+var boundary = ee.FeatureCollection("projects/servir-hkh/RLCMS/NEP/bnd/bnd_buff_n").geometry();
+
+var year = 2022;
+var repository = 'projects/servir-hkh/FRTC_WB/primitives/';
+ 
+
+var palette = '0e870d,d2ffa9,18deff,feafff';  
+ 
+var primitives = ['tree', 'cropland', 'tch', 'tcc'];
+
+
+/*
+creating an image stack based on all the primitives as bands. The bands will have
+same name as the primitive itself.
+*/
+var imageStack = ee.Image([]);
+for (var i = 0; i < primitives.length; i++){
+  var primitive = primitives[i];
+  imageStack = imageStack.addBands(ee.Image(repository+primitive+'-'+year).unmask(0).rename(primitive));
+}
+
+
+Map.addLayer(imageStack.reproject({crs:'EPSG:4326',scale:30}),{},'input-stack',false);
+/*
+a decision tree needs to be built for creating a DT classifier so that every pixel
+with run through the specified hierarchy/logic. It can be built interactively from
+https://banmedo.github.io/decisionTreeBuilder/#
+*/
+
+
+
+var decisionTree = ['1) root 9999 9999 9999',
+'2) tree>6000 9999 9999 1 *',
+'3) tree<=6000 9999 9999 9999',
+'6) tch>=7 9999 9999 1 *',
+'7) tch<7 9999 9999 9999',
+'14) tcc>30 9999 9999 1 *',
+'15) tcc<30 9999 9999 9999',
+
+'30) tree>=4400 9999 9999 9999',
+'60) tcc>8 9999 9999 1 *',
+'61) tcc<8 9999 9999 2 *',
+'31) tree<4400 9999 9999 9999',
+
+'62) cropland>500 9999 9999 2 *',
+'63) cropland<=500 9999 9999 2 *'
+
+ 
+];
+
+
+
+
+decisionTree = decisionTree.join('\n');  
+
+/*
+Create a classifier based on the decision tree and run it over the stack
+*/
+var classifier = ee.Classifier.decisionTree(decisionTree);
+var classifiedImage = imageStack.classify(classifier).clip(boundary).reproject({crs:'EPSG:4326',scale:10});
+
+
+
+var forest = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/forest_polygon1')
+var nonforest = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/other_polygon1')
+var forest2 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/forest')
+var nonforest2 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/nf')
+var forest3 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/forest2')
+var nonforest3 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/nf2')
+var forest4 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/mergedforest')
+var nonforest4 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/mergednonforest')
+var forest5 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/forest5')
+var nonforest5 = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/pointsample/nonforest5')
+
+
+/*
+Apply lc masks
+*/
+// convert agri to grass in some protected areas
+
+
+var adForest = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/other_shp/clip_tcc1'); 
+var adForestHigh = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/other_shp/forest_high'); 
+
+
+// Converting to forest from other
+var mustaddForest = classifiedImage.clip(adForest).eq(2).unmask(0);
+classifiedImage = classifiedImage.updateMask(mustaddForest.not()).unmask(1).clip(boundary); 
+
+
+// Converting to forest from other
+var mustaddForestHigh = classifiedImage.clip(adForestHigh).eq(2).unmask(0);
+classifiedImage = classifiedImage.updateMask(mustaddForestHigh.not()).unmask(1).clip(boundary); 
+ 
+
+var teaf2c = ee.FeatureCollection('projects/servir-hkh/RLCMS/NEP/lcMasks/tea');
+var convertBounds = teaf2c;
+var yesCrop = classifiedImage.clip(convertBounds).eq(1).unmask(0);
+
+classifiedImage = classifiedImage.updateMask(yesCrop.not()).unmask(2).clip(boundary); 
+
+
+// # Create a mask for class 1
+var Forest = classifiedImage.clip(forest).eq(2).unmask(0);
+
+
+classifiedImage = classifiedImage.updateMask(Forest.not()).unmask(1).clip(boundary); 
+
+ var Forest2 = classifiedImage.clip(forest2).eq(2).unmask(0);
+
+
+classifiedImage = classifiedImage.updateMask(Forest2.not()).unmask(1).clip(boundary); 
+
+ var Forest3 = classifiedImage.clip(forest3).eq(2).unmask(0);
+
+
+classifiedImage = classifiedImage.updateMask(Forest3.not()).unmask(1).clip(boundary); 
+
+ var Forest4 = classifiedImage.clip(forest4).eq(2).unmask(0);
+classifiedImage = classifiedImage.updateMask(Forest4.not()).unmask(1).clip(boundary); 
+
+ var Forest5 = classifiedImage.clip(forest5).eq(2).unmask(0);
+classifiedImage = classifiedImage.updateMask(Forest5.not()).unmask(1).clip(boundary); 
+
+// # Create a mask for class 2 
+var nonForest = classifiedImage.clip(nonforest).eq(1).unmask(0);
+
+classifiedImage = classifiedImage.updateMask(nonForest.not()).unmask(2).clip(boundary);
+
+var nonForest2 = classifiedImage.clip(nonforest2).eq(1).unmask(0);
+
+classifiedImage = classifiedImage.updateMask(nonForest2.not()).unmask(2).clip(boundary);
+
+var nonForest3 = classifiedImage.clip(nonforest3).eq(1).unmask(0);
+
+classifiedImage = classifiedImage.updateMask(nonForest3.not()).unmask(2).clip(boundary);
+
+var nonForest4 = classifiedImage.clip(nonforest4).eq(1).unmask(0);
+
+classifiedImage = classifiedImage.updateMask(nonForest4.not()).unmask(2).clip(boundary);
+
+
+var nonForest5 = classifiedImage.clip(nonforest5).eq(1).unmask(0);
+
+classifiedImage = classifiedImage.updateMask(nonForest5.not()).unmask(2).clip(boundary);
+
+var postProcessedImage = applyMinMapUnits(classifiedImage)//.reproject({crs:'EPSG:4326',scale:10});
+/*
+adding the final landcover image to the map
+*/
+Map.addLayer(classifiedImage, {min:1,max:4,palette:palette}, 'without-mmu',false);
+Map.addLayer(postProcessedImage,{min:1,max:4,palette:palette},'landcover-'+year,false);
+
+
+function applyMinMapUnits(image) {
+  var minimumMappingUnit = 5000;  // Minimum mapping unit in square meters
+  var scale = 10;  // Scale in meters per pixel
+  var pixels = Math.floor(minimumMappingUnit / (scale * scale));  // Calculate the number of pixels
+
+  // Step 1: Identify small clusters using connected pixel count
+  var chainCount = image.connectedPixelCount(pixels + 2, true).reproject({crs: 'EPSG:4326', scale: 10});
+  var smallPixelsMask = chainCount.lt(pixels).reproject({crs: 'EPSG:4326', scale: 10});
+Map.addLayer(smallPixelsMask, {}, "small pixel")
+  // Step 2: Create a mask for the small clusters
+  var smallClustersMask = smallPixelsMask.focal_max({radius: 1, units: 'pixels'}).reproject({crs: 'EPSG:4326', scale: 10});
+
+  // Step 3: Calculate the mode of neighboring pixels only for small clusters
+  var neighborhoodValues = image.reduceNeighborhood({
+    reducer: ee.Reducer.mode(),
+    kernel: ee.Kernel.square(5),
+    skipMasked: true
+  }).reproject({crs: 'EPSG:4326', scale: 10});
+
+  // Step 4: Replace the values of pixels in the small clusters with the calculated neighborhood values
+  var finalImage = image.where(smallClustersMask, neighborhoodValues.mask(smallClustersMask)).reproject({crs: 'EPSG:4326', scale: 10});
+
+  return finalImage;
+}
+
+
+
+
+
+/*
+add properties and metadata
+*/
+postProcessedImage = postProcessedImage.set(
+  'system:time_start',ee.Date.fromYMD(year,01,01),
+  'preparedBy','Landcover team/Servir-HKH',
+  'legend',"{1:'forest',2:'other'}"
+);
+
+
+
+Export.image.toAsset({
+  image:postProcessedImage,
+  description:'forestcoverPre-'+year,
+  assetId:'projects/servir-hkh/FRTC_WB/forestcoverPre-'+year,
+  region:boundary,
+  scale:10,
+  maxPixels:1e11
+});
+
+// Export.image.toDrive({
+//   image:postProcessedImage,
+//   description:'np_landcover-'+year,
+//   folder:'forest2022_jan',
+//     scale:10,
+//   maxPixels:1e11
+// });
+
+
+ 
+
+
+     
