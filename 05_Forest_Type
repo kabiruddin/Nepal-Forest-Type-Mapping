@@ -1,0 +1,238 @@
+
+// Define boundary for Nepal region
+// ------------------------------------------
+var boundary = ee.FeatureCollection("projects/servir-hkh/RLCMS/NEP/bnd/bnd_buff_n").geometry();
+
+
+
+var year = 2022;
+var repository = 'projects/servir-hkh/FRTC_WB/primitives_ftype/';
+ 
+
+var palette = 'C1E899, 9A6735, 73896A, AAC789, 6F8C6A, 3ADF00, 53777A, 2E8B57, 006B35, 29ABCA, 1976D2, 0C4B33, 8FBC8F, 4D967A, 237E5A, 008000, 005000, 3B5323, 667D2C, 99A84D, BDB76B, D7CCC8, F2F3F4,3ADF00,FBEEE6';
+
+
+
+
+//var palette = 'FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,FBEFF8,3ADF00,FBEFF8';  
+ 
+//var primitives = ['tree', 'cropland', 'snow', 'grassland','water','tch', 'tcc'];
+
+var primitives = ['tch', 'tcc','abies_mixed','alnus_forest','castanopsis_lower_temperate_mixed_broadleaved','cool_temperate_mixed_broadleaved','dalbergia_sissoo_senegalia_catechu','lower_temperate_mixed_broadleaved'
+,'lower_temperate_quercus','pinus_roxburghii','pinus_roxburghii_mixedbroadleaved','pinus_roxburghii_shorea_robusta','pinus_wallichiana',
+'rhododendron_arboreum','schima_forest','shorea_robusta','shorearobusta_mixedbroadleaved','subtropical_mixed_broadleaved',
+'temp_rhodo_mixedbroadleaved','temperate_mixed_broadleaved','terminalia_tropical_mixed_broadleaved','tropical_deciduous_riverine','tropical_mixed_broadleaved','tropical_riverine',
+'upper_temperate_coniferous','upper_temperate_quercus','warm_temperate_mixed_broadleaved'];
+//riverbed
+/*
+creating an image stack based on all the primitives as bands. The bands will have
+same name as the primitive itself.
+*/
+var imageStack = ee.Image([]);
+for (var i = 0; i < primitives.length; i++){
+  var primitive = primitives[i];
+  imageStack = imageStack.addBands(ee.Image(repository+primitive+'-'+year).unmask(0).rename(primitive));
+}
+
+
+Map.addLayer(imageStack.reproject({crs:'EPSG:4326',scale:30}),{},'input-stack',false);
+/*
+a decision tree needs to be built for creating a DT classifier so that every pixel
+with run through the specified hierarchy/logic. It can be built interactively from
+https://banmedo.github.io/decisionTreeBuilder/#
+
+
+*/
+var decisionTree = ['1) root 9999 9999 9999',
+'2) shorea_robusta>5200 9999 9999 1 *',
+'3) shorea_robusta<=5200 9999 9999 9999',
+'6) tropical_mixed_broadleaved>=4600 9999 9999 2 *',
+'7) tropical_mixed_broadleaved<4600 9999 9999 9999', 
+'14) subtropical_mixed_broadleaved>=6000 9999 9999 3 *', // this primitive has big issue, can not be used
+'15) subtropical_mixed_broadleaved<6000 9999 9999 9999 ',
+'30) shorearobusta_mixedbroadleaved>=1700 9999 9999 4 *',
+'31) shorearobusta_mixedbroadleaved<1700 9999 9999 9999 ', 
+'62) abies_mixed>=2000 9999 9999 5 *',
+'63) abies_mixed<2000 9999 9999 9999', 
+'126) upper_temperate_coniferous>=1000 9999 9999 6 *',
+'127) upper_temperate_coniferous<1000 9999 9999 9999 ', 
+'254) cool_temperate_mixed_broadleaved>=2400 9999 9999 7 *',
+'255) cool_temperate_mixed_broadleaved<2400 9999 9999 9999', 
+ '510) castanopsis_lower_temperate_mixed_broadleaved>=1400 9999 9999 8 *',
+'511) castanopsis_lower_temperate_mixed_broadleaved<1400 9999 9999 9999',
+'1022) pinus_roxburghii>=4000 9999 9999 9 *',
+'1023) pinus_roxburghii<4000 9999 9999 9999 ',
+'2046) alnus_forest>=4800 9999 9999 10 *',
+'2047) alnus_forest<4800 9999 9999 9999 ',
+'4094) schima_forest>=4000 9999 9999 11 *',
+'4095) schima_forest<4000 9999 9999 9999 ',
+'8190) pinus_roxburghii_mixedbroadleaved>=2000 9999 9999 12 *',
+'8191) pinus_roxburghii_mixedbroadleaved<2000 9999 9999 9999 ',
+'16382) pinus_wallichiana>=2400 9999 9999 13 *',
+'16383) pinus_wallichiana<2400 9999 9999 9999  ',
+'32766) warm_temperate_mixed_broadleaved>=2200 9999 9999 14 *',
+'32767) warm_temperate_mixed_broadleaved<2200 9999 9999 9999 ',
+'65534) upper_temperate_quercus>=2000 9999 9999 15 *',
+'65535) upper_temperate_quercus<2000 9999 9999 9999 ',
+'131070) rhododendron_arboreum>=1200 9999 9999 16 *',
+'131071) rhododendron_arboreum<1200 9999 9999 9999 ',
+'262142) temp_rhodo_mixedbroadleaved>=900 9999 9999 17 *',
+'262143) temp_rhodo_mixedbroadleaved<900 9999 9999 9999',
+'524286) dalbergia_sissoo_senegalia_catechu>=1000 9999 9999 18 *',
+'524287) dalbergia_sissoo_senegalia_catechu<1000 9999 9999 9999 ',
+'1048574) terminalia_tropical_mixed_broadleaved>=1000 9999 9999 19 *',
+'1048575) terminalia_tropical_mixed_broadleaved<1000 9999 9999 9999',
+'2097150) temperate_mixed_broadleaved>=700 9999 9999 20 *',
+'2097151) temperate_mixed_broadleaved<700 9999 9999 9999',
+'4194302) tropical_deciduous_riverine>=1200 9999 9999 21 *',
+'4194303) tropical_deciduous_riverine <1200 9999 9999 9999',
+'8388606) tropical_riverine>=800 9999 9999 22 *',
+'8388607) tropical_riverine <800 9999 9999 9999',
+'16777214) lower_temperate_mixed_broadleaved>=1000 9999 9999 23 *',
+'16777215) lower_temperate_mixed_broadleaved<1000 9999 9999 9999',
+'33554430) pinus_roxburghii_shorea_robusta>=4700 9999 9999 24 *',
+'33554431) pinus_roxburghii_shorea_robusta<4700 9999 9999 9999 ',
+'67108862) shorea_robusta>=2000 9999 9999 1 *',
+'67108863) shorea_robusta <2000 9999 9999 9999 ',
+'134217726) subtropical_mixed_broadleaved>=2000 9999 9999 3 *',
+'134217727) subtropical_mixed_broadleaved<2000 9999 9999 9999', 
+'268435454) alnus_forest>=1800 9999 9999 10 *',
+'268435455) alnus_forest<1800 9999 9999 9999',
+'536870910) tropical_mixed_broadleaved>=1200 9999 9999 2 *',
+'536870911) tropical_mixed_broadleaved<1200 9999 9999 9999',
+'1073741822) subtropical_mixed_broadleaved>=900 9999 9999 3 *',
+'1073741823) subtropical_mixed_broadleaved<900 9999 9999 9999',
+'2147483646) upper_temperate_quercus>=500 9999 9999 15 *',
+'2147483647) upper_temperate_quercus<500 9999 9999 9999',
+
+'4294967294) lower_temperate_quercus>=400 9999 9999 25 *',
+'4294967295) lower_temperate_quercus<400 9999 9999 9999',
+
+'8589934590) shorea_robusta>=1 9999 9999 1 *',
+'8589934591) shorea_robusta <1 9999 9999 9999 *'
+
+];
+
+ 
+
+
+decisionTree = decisionTree.join('\n'); 
+
+/*
+Create a classifier based on the decision tree and run it over the stack
+*/
+var classifier = ee.Classifier.decisionTree(decisionTree);
+var classifiedImage = imageStack.classify(classifier).clip(boundary).reproject({crs:'EPSG:4326',scale:10});
+
+// Apply lc masks
+
+var lc = ee.Image('projects/servir-hkh/FRTC_WB/forestcoverPre-2022')
+
+
+//var lc = eeImage('')
+
+var forestmask = lc.eq(1)
+var foresttype = classifiedImage.updateMask(forestmask)
+
+//Map.addLayer(foresttype,{min:1,max:25,palette:palette},'test')
+print(foresttype.projection().nominalScale())
+
+/*
+Apply lc masks
+*/
+// convert agri to grass in some protected areas
+ 
+ 
+// var noforestBND = ee.FeatureCollection('projects/servir-hkh/FRTC_WB/other_shp/no_forest');
+
+
+// var noFCls1 = classifiedImage.clip(noforestBND).eq(1).unmask(0);
+// var noFCls2 = classifiedImage.clip(noforestBND).eq(2).unmask(0);
+// var noFCls3 = classifiedImage.clip(noforestBND).eq(3).unmask(0);
+// var noFCls4 = classifiedImage.clip(noforestBND).eq(4).unmask(0);
+// var noFCls5 = classifiedImage.clip(noforestBND).eq(5).unmask(0);
+// var noFCls6 = classifiedImage.clip(noforestBND).eq(6).unmask(0);
+// var noFCls7 = classifiedImage.clip(noforestBND).eq(7).unmask(0);
+// var noFCls8 = classifiedImage.clip(noforestBND).eq(8).unmask(0);
+// var noFCls9 = classifiedImage.clip(noforestBND).eq(9).unmask(0);
+// var noFCls10 = classifiedImage.clip(noforestBND).eq(10).unmask(0);
+// var noFCls11 = classifiedImage.clip(noforestBND).eq(11).unmask(0);
+// var noFCls12 = classifiedImage.clip(noforestBND).eq(12).unmask(0);
+// var noFCls13 = classifiedImage.clip(noforestBND).eq(13).unmask(0);
+// var noFCls14 = classifiedImage.clip(noforestBND).eq(14).unmask(0);
+// var noFCls15 = classifiedImage.clip(noforestBND).eq(15).unmask(0);
+// var noFCls16 = classifiedImage.clip(noforestBND).eq(16).unmask(0);
+// var noFCls17 = classifiedImage.clip(noforestBND).eq(17).unmask(0);
+// var noFCls18 = classifiedImage.clip(noforestBND).eq(18).unmask(0);
+// var noFCls19 = classifiedImage.clip(noforestBND).eq(19).unmask(0);
+// var noFCls20 = classifiedImage.clip(noforestBND).eq(20).unmask(0);
+// var noFCls21 = classifiedImage.clip(noforestBND).eq(21).unmask(0);
+// var noFCls22 = classifiedImage.clip(noforestBND).eq(22).unmask(0);
+// var noFCls23 = classifiedImage.clip(noforestBND).eq(23).unmask(0);
+// var noFCls24 = classifiedImage.clip(noforestBND).eq(24).unmask(0);
+// var noFCls25 = classifiedImage.clip(noforestBND).eq(5).unmask(0);
+
+
+
+
+// classifiedImage = classifiedImage.updateMask(noFCls1.not()).updateMask(noFCls2.not()).updateMask(noFCls3.not()).updateMask(noFCls4.not()).updateMask(noFCls5.not()).updateMask(noFCls6.not()).updateMask(noFCls7.not()).updateMask(noFCls8.not()).updateMask(noFCls9.not()).updateMask(noFCls10.not()).updateMask(noFCls11.not()).updateMask(noFCls12.not()).updateMask(noFCls13.not()).updateMask(noFCls14.not()).updateMask(noFCls15.not()).updateMask(noFCls16.not()).updateMask(noFCls17.not()).updateMask(noFCls18.not()).updateMask(noFCls19.not()).updateMask(noFCls20.not()).updateMask(noFCls21.not()).updateMask(noFCls22.not()).updateMask(noFCls23.not()).updateMask(noFCls24.not()).updateMask(noFCls25.not()).unmask(26).clip(boundary);
+
+
+
+
+var postProcessedImage = applyMinMapUnits(foresttype).reproject({crs:'EPSG:4326',scale:10});
+/*
+adding the final landcover image to the map
+*/
+//Map.addLayer(classifiedImage, {min:1,max:26,palette:palette}, 'without-mmu',false);
+Map.addLayer(postProcessedImage,{min:1,max:26,palette:palette},'landcover-'+year);
+
+function applyMinMapUnits(image){
+  var minimumMappingUnit = 5000;
+  var scale = 10;
+  var pixels = parseInt(minimumMappingUnit/(scale*scale));
+  var chainCount = image.connectedPixelCount(pixels+2,true).reproject({crs:'EPSG:4326',scale:10});
+  var removePixels = chainCount.lt(pixels).reproject({crs:'EPSG:4326',scale:10});
+  var median = image.focal_mode().updateMask(removePixels).reproject({crs:'EPSG:4326',scale:10});
+  var final = median.unmask(image).reproject({crs:'EPSG:4326',scale:10});
+  return final.updateMask(image);
+}
+
+
+
+/*
+add properties and metadata
+*/
+postProcessedImage = postProcessedImage.set(
+  'system:time_start',ee.Date.fromYMD(year,01,01),
+  'preparedBy','Landcover team/Servir-HKH',
+  'legend',"{1:'forest',2:'other'}"
+);
+
+
+
+Export.image.toAsset({
+  image:postProcessedImage,
+  description:'ForestTypePre-'+year,
+  assetId:'projects/servir-hkh/FRTC_WB/landcover/ForestTypePre-'+year,
+  region:boundary,
+  scale:10,
+  maxPixels:1e11
+});
+
+
+
+// Export.image.toDrive({
+//   image:postProcessedImage,
+//   description:'np_forest-'+year,
+//   folder:'a',
+//   region:bndbuff_n,
+//   scale:10,
+//   maxPixels:1e11
+// });
+
+
+ 
+
+
+ //Map.addLayer(noforestBND)
