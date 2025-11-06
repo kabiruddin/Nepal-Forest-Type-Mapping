@@ -1,0 +1,101 @@
+/*
+Variables - Refer to the notes section for descriptions.
+*/
+var boundary = ee.FeatureCollection('projects/servir-hkh/RLCMS/NEP/bnd/bnd_buff').geometry();
+var repository = 'projects/servir-hkh/FRTC_WB/composites';
+var trainingData = ee.FeatureCollection([])
+            .merge('projects/servir-hkh/RLCMS/NEP/pointsample/pointsample20-21')
+            ;
+var inputLandClass = 'Primitive';
+var inputYearClass = 'year';
+
+var sampleScale = 10;
+var exportId = 'projects/servir-hkh/FRTC_WB/pointsample/training_np_after_2012_19_'
+
+
+
+var startYear = 2020;
+var endYear = 2023;
+
+/* ----------------------------------------------------------------------------------------------
+WARNING!!! 
+
+FUNCTIONS AND PROCEDURES BELOW - Edit at your own risk
+---------------------------------------------------------------------------------------------- */
+
+/*
+IMPORT - Required script that adds various covariates to the composite image.
+*/
+var addCovariates = require('users/kabiruddinbd/frtc_wb_scripts:SupportScripts/1_addCovariates_yearly');
+
+ 
+
+
+//var addCovariates = require('users/kabiruddinbd/BambooNP:SupportScript/1_addCovariates_yearly');
+/*
+Convert the `year` column to numeric to prevent conflicts.
+*/
+function parseYear(feature) {
+  return feature.set(inputYearClass, ee.Number.parse(feature.get(inputYearClass)));
+}
+
+trainingData = trainingData.map(parseYear);
+
+/*
+Check the distribution of data.
+*/
+print('Land Class Distribution:', trainingData.aggregate_histogram(inputLandClass));
+print('Year Class Distribution:', trainingData.aggregate_histogram(inputYearClass));
+
+/*
+Filter the training dataset by the boundary (Region of Interest).
+This step is unnecessary if the composite covers the entire study region.
+*/
+var trainingPoints = trainingData.filterBounds(boundary);
+
+/*
+Function to perform sampling - takes points and year from which to sample.
+*/
+function sampleData(points, year) {
+  var filteredPoints = points.filter(ee.Filter.eq(inputYearClass, year));
+  var composite = ee.Image(repository + '/' + year);
+
+  // Add covariates to the image
+  var covariateImage = addCovariates.addCovariatesToImage(composite)
+                                    .unmask(0)
+                                    .clip(boundary);
+
+  // Sample the image on the training points
+  return covariateImage.sampleRegions({
+    collection: filteredPoints,
+    scale: sampleScale,
+    properties: [inputLandClass, inputYearClass],
+    geometries: true,
+    tileScale: 16
+  });
+}
+
+/*
+Iterate through each year to sample data while skipping 2012.
+*/
+var sampledYears = ee.FeatureCollection([]);
+for (var year = startYear; year <= endYear; year++) {
+  if (year === 2012) continue;
+  sampledYears = sampledYears.merge(sampleData(trainingPoints, year));
+}
+
+/*
+Check sampled data to ensure correctness.
+*/
+print('Sampled Data Preview:', sampledYears.first());
+
+/*
+Initiate export of sampled points.
+*/
+Export.table.toAsset({
+  collection: sampledYears,
+  description: 'sampled_',
+  assetId: exportId
+});
+
+ 
